@@ -2,7 +2,7 @@
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#f5f5f7">
@@ -52,31 +52,32 @@
   #lock {
     position:fixed; inset:0;
     background:linear-gradient(170deg, #fff7ec 0%, #f5f5f7 55%);
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    padding:32px; z-index:100;
+    display:flex; flex-direction:column; align-items:center; justify-content:safe center;
+    overflow-y:auto; padding:24px 16px; z-index:100;
   }
   .lock-emoji { font-size:54px; margin-bottom:18px; animation:pop .6s cubic-bezier(.2,.8,.2,1); }
   @keyframes pop { from{transform:scale(.5);opacity:0} to{transform:scale(1);opacity:1} }
   #lock h1 { font-size:26px; font-weight:600; letter-spacing:-.5px; }
   #lock p { color:var(--ink-soft); font-size:15px; margin-top:8px; text-align:center; line-height:1.7; }
 
-  .pin-wrap { margin-top:38px; display:flex; flex-direction:column; align-items:center; gap:20px; }
-  .pin-dots { display:flex; gap:16px; direction:ltr; }
-  .pin-dot { width:14px; height:14px; border-radius:50%; background:transparent; border:1.5px solid var(--ink-faint); transition:all .2s; }
-  .pin-dot.filled { background:var(--accent); border-color:var(--accent); transform:scale(1.1); }
-  .pin-wrap.shake { animation:shake .4s; }
-  @keyframes shake { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-8px)} 40%,80%{transform:translateX(8px)} }
-
-  .keypad { display:grid; grid-template-columns:repeat(3,72px); gap:18px; margin-top:14px; }
+  .pin-wrap { width:min(100%, 252px); margin-top:24px; }
+  .pin-wrap label { display:block; margin-bottom:6px; font-size:14px; }
+  #pinInput {
+    width:100%; min-height:48px; padding:8px 12px;
+    border:1px solid var(--ink-faint); border-radius:14px; background:var(--card);
+    color:var(--ink); font-size:20px; letter-spacing:.35em; text-align:center;
+  }
+  #pinInput:focus-visible, .key:focus-visible { outline:2px solid var(--blue); outline-offset:3px; }
+  #pinInput[aria-invalid="true"] { border-color:var(--red); }
+  .keypad { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:12px; direction:ltr; }
   .key {
-    height:72px; border-radius:50%; background:rgba(255,255,255,0.7);
-    backdrop-filter:blur(10px); font-size:28px; font-weight:400;
-    box-shadow:0 1px 2px rgba(0,0,0,0.04); transition:transform .1s, background .15s;
-    display:flex; align-items:center; justify-content:center;
+    height:48px; border-radius:16px; background:rgba(255,255,255,0.8);
+    font-size:24px; box-shadow:0 1px 2px rgba(0,0,0,0.04);
+    transition:transform .1s, background .15s;
   }
   .key:active { transform:scale(.92); background:rgba(0,0,0,0.05); }
   .key.fn { background:transparent; box-shadow:none; font-size:16px; color:var(--ink-soft); }
-  .lock-hint { margin-top:26px; font-size:13px; color:var(--ink-faint); min-height:18px; }
+  .lock-hint { margin-top:12px; font-size:14px; color:#a82620; min-height:22px; }
 
   /* ---------- هدر ---------- */
   header {
@@ -164,15 +165,13 @@
 <div id="lock">
   <div class="lock-emoji">🍲</div>
   <h1>سفره</h1>
-  <p>رمز رو وارد کن تا وارد بشی</p>
-  <div class="pin-wrap" id="pinWrap">
-    <div class="pin-dots" id="pinDots">
-      <div class="pin-dot"></div><div class="pin-dot"></div>
-      <div class="pin-dot"></div><div class="pin-dot"></div>
-    </div>
-    <div class="keypad" id="keypad"></div>
+  <div class="pin-wrap">
+    <label for="pinInput">رمز چهاررقمی</label>
+    <input id="pinInput" type="password" inputmode="numeric" autocomplete="off"
+           dir="ltr" aria-describedby="lockHint">
+    <div class="keypad" id="keypad" role="group" aria-label="صفحه‌کلید عددی"></div>
   </div>
-  <div class="lock-hint" id="lockHint"></div>
+  <div class="lock-hint" id="lockHint" role="status"></div>
 </div>
 
 <!-- اپ اصلی -->
@@ -205,8 +204,8 @@ import { createClient } from '@supabase/supabase-js';
 /* ═══════════════════════════════════════════════════════
    ⬇️ این سه مقدار رو پر کن (راهنما رو از Claude بگیر)
    ═══════════════════════════════════════════════════════ */
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? '';
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY ?? '';
 const PIN          = import.meta.env.VITE_PIN || '1373';
 /* ═══════════════════════════════════════════════════════ */
 
@@ -227,30 +226,53 @@ if (!configured) {
 }
 
 // ====== رمز ======
-let pinBuffer = '';
 const keypad = document.getElementById('keypad');
-const pinDots = document.getElementById('pinDots').children;
-const pinWrap = document.getElementById('pinWrap');
+const pinInput = document.getElementById('pinInput');
 const lockHint = document.getElementById('lockHint');
-const keys = ['۱','۲','۳','۴','۵','۶','۷','۸','۹','','۰','⌫'];
-const fa2en = s => s.replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d));
+const persianDigits = '۰۱۲۳۴۵۶۷۸۹';
+const arabicDigits = '٠١٢٣٤٥٦٧٨٩';
 
-keys.forEach(k => {
-  const b = document.createElement('button');
-  if (k === '') { b.style.visibility='hidden'; b.className='key'; }
-  else if (k === '⌫') { b.className='key fn'; b.textContent='⌫'; b.onclick=delPin; }
-  else { b.className='key'; b.textContent=k; b.onclick=()=>addPin(fa2en(k)); }
-  keypad.appendChild(b);
-});
-function renderDots(){ for(let i=0;i<4;i++) pinDots[i].classList.toggle('filled', i<pinBuffer.length); }
-function addPin(d){ if(pinBuffer.length>=4)return; pinBuffer+=d; renderDots(); if(pinBuffer.length===4) setTimeout(checkPin,150); }
-function delPin(){ pinBuffer=pinBuffer.slice(0,-1); renderDots(); }
-function checkPin(){
-  if(pinBuffer===PIN){ localStorage.setItem('sofreh_unlocked','1'); enterApp(); }
-  else { pinWrap.classList.add('shake'); lockHint.textContent='رمز درست نیست، دوباره';
-    setTimeout(()=>{ pinWrap.classList.remove('shake'); pinBuffer=''; renderDots(); },450); }
+function updatePin(value) {
+  const digits = value
+    .replace(/[۰-۹]/g, digit => persianDigits.indexOf(digit))
+    .replace(/[٠-٩]/g, digit => arabicDigits.indexOf(digit))
+    .replace(/[^0-9]/g, '')
+    .slice(0, 4);
+
+  if (pinInput.value !== digits) pinInput.value = digits;
+  lockHint.textContent = '';
+  pinInput.removeAttribute('aria-invalid');
+  if (digits.length < 4) return;
+
+  pinInput.value = '';
+  if (digits === PIN) {
+    localStorage.setItem('sofreh_unlocked', '1');
+    enterApp();
+  } else {
+    pinInput.setAttribute('aria-invalid', 'true');
+    lockHint.textContent = 'رمز درست نیست. دوباره امتحان کن.';
+  }
 }
-if (configured && localStorage.getItem('sofreh_unlocked')==='1') enterApp();
+
+pinInput.addEventListener('input', () => updatePin(pinInput.value));
+
+for (const digit of [1, 2, 3, 4, 5, 6, 7, 8, 9, 0]) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'key';
+  button.textContent = persianDigits[digit];
+  if (digit === 0) button.style.gridColumn = '2';
+  button.onclick = () => updatePin(pinInput.value + digit);
+  keypad.appendChild(button);
+}
+
+const deleteKey = document.createElement('button');
+deleteKey.type = 'button';
+deleteKey.className = 'key fn';
+deleteKey.textContent = '⌫';
+deleteKey.setAttribute('aria-label', 'حذف رقم آخر');
+deleteKey.onclick = () => updatePin(pinInput.value.slice(0, -1));
+keypad.appendChild(deleteKey);
 
 function enterApp(){
   document.getElementById('lock').classList.add('hidden');
@@ -369,7 +391,7 @@ function initApp(){
     })
     .subscribe();
 }
-if (configured) renderDate();
+if (configured && localStorage.getItem('sofreh_unlocked') === '1') enterApp();
 </script>
 </body>
 </html>
